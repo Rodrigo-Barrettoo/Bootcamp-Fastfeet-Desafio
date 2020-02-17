@@ -1,111 +1,102 @@
 import * as Yup from 'yup';
+import { format, startOfHour, parseISO, isBefore } from 'date-fns';
+import pt from 'date-fns/locale/pt';
+import { Op } from 'sequelize';
+import Delivery from '../models/Delivery';
 import Deliveryman from '../models/Deliveryman';
-import File from '../models/File';
 
 class DeliveryStartController {
-  async show(req, res) {
-    const deliveryman = await Deliveryman.findByPk(req.params.id);
-
-    if (!deliveryman) {
-      return res.status(400).json({ error: 'Deliveryman already exists' });
-    }
-
-    const { name, email, avatar_id } = deliveryman;
-
-    return res.json({ name, email, avatar_id });
-  }
-
-  async store(req, res) {
+  async update(req, res) {
     const schema = Yup.object().shape({
-      name: Yup.string().required(),
-      email: Yup.string().required(),
+      start_date: Yup.date().required(),
     });
 
     if (!(await schema.isValid(req.body))) {
       return res.status(400).json({ error: 'Validation fails' });
     }
 
-    const deliverymanExists = await Deliveryman.findOne({
-      where: { name: req.body.name },
+    const delivery = await Delivery.findByPk(req.params.id, {
+      include: [
+        {
+          model: Deliveryman,
+          as: 'deliveryman',
+          attributes: ['id', 'name', 'email'],
+        },
+      ],
     });
 
-    if (deliverymanExists) {
-      return res.status(400).json({ error: 'Deliveryman already exists' });
+    if (!delivery) {
+      return res.status(400).json('Delivery does not exist');
     }
 
-    const { id, name, email } = await Deliveryman.create(req.body);
+    if (delivery.canceled_at) {
+      return res.status(400).json('Delivery was canceled');
+    }
+
+    if (delivery.start_date) {
+      return res.status(400).json('Delivery already started');
+    }
+
+    if (delivery.end_date) {
+      return res.status(400).json('Delivery already completed');
+    }
+
+    const { start_date } = req.body;
+
+    const hourStart = startOfHour(parseISO(start_date));
+
+    if (isBefore(hourStart, new Date())) {
+      return res.status(400).json({ error: 'Past dates are not permitted' });
+    }
+
+    const currentTime = hourStart.getHours();
+
+    if (!(currentTime >= 8 && currentTime <= 18)) {
+      return res
+        .status(400)
+        .json('Withdrawal time is only allowed between 8 am and 6 pm');
+    }
+
+    const formattedDate = format(
+      hourStart,
+      "'dia' dd 'de' MMMM', às' H:mm'h'",
+      { locale: pt }
+    );
+
+    const deliveryman = await Deliveryman.findByPk(delivery.deliveryman.id);
+    if (!deliveryman) {
+      return res.status(400).json('Entregador não existe');
+    }
+
+    const deliveryLimit = await Delivery.count({
+      where: {
+        deliveryman_id: delivery.deliveryman.id,
+        end_date: { [Op.ne]: null },
+      },
+    });
+
+    if (deliveryLimit >= 5) {
+      return res.status(400).json('The limit is 5 deliveries per day');
+    }
+
+    const {
+      id,
+      recipient_id,
+      deliveryman_id,
+      product,
+      canceled_at,
+      end_date,
+    } = await delivery.update({ start_date });
 
     return res.json({
       id,
-      name,
-      email,
+      recipient_id,
+      deliveryman_id,
+      product,
+      canceled_at,
+      end_date,
+      start_date: formattedDate,
     });
-  }
-
-  async update(req, res) {
-    const schema = Yup.object().shape({
-      name: Yup.string(),
-      email: Yup.string(),
-      avatar_id: Yup.number().positive(),
-    });
-
-    if (!(await schema.isValid(req.body))) {
-      return res.status(400).json({ error: 'Validation fails' });
-    }
-
-    const deliveryman = await Deliveryman.findByPk(req.params.id);
-
-    if (!deliveryman) {
-      return res.status(401).json({ error: 'Deliveryman does not exist' });
-    }
-
-    const { avatar_id, email } = await req.body;
-
-    if (avatar_id) {
-      const avatar = await File.findOne({
-        where: { id: avatar_id },
-      });
-
-      if (!avatar) {
-        return res.status(400).json('Avatar not found');
-      }
-    }
-
-    if (email && email !== deliveryman.email) {
-      const deliverymanExists = await Deliveryman.findOne({ where: { email } });
-
-      if (deliverymanExists) {
-        return res.status(400).json({ error: 'Email already registered' });
-      }
-    }
-
-    const { name } = await deliveryman.update(req.body);
-
-    const avatar = deliveryman.avatar_id;
-
-    return res.json({ email, name, avatar });
-  }
-
-  async delete(req, res) {
-    const schema = Yup.object().shape({
-      id: Yup.number()
-        .positive()
-        .required(),
-    });
-
-    if (!(await schema.isValid(req.params))) {
-      return res.status(400).json({ error: 'Validation fails' });
-    }
-
-    const deliveryman = await Deliveryman.findByPk(req.params.id);
-
-    if (!deliveryman) {
-      return res.status(401).json({ error: 'Deliveryman does not exist' });
-    }
-
-    deliveryman.destroy({ where: Deliveryman });
-
-    return res.status(200).json({ message: 'Deliveryman has been deleted' });
   }
 }
 
