@@ -8,6 +8,12 @@ import Deliveryman from '../models/Deliveryman';
 import Mail from '../../lib/Mail';
 
 class DeliveryController {
+  async index(req, res) {
+    const deliveries = await Delivery.findAll();
+
+    return res.json(deliveries);
+  }
+
   async store(req, res) {
     const schema = Yup.object().shape({
       recipient_id: Yup.number().required(),
@@ -141,6 +147,28 @@ class DeliveryController {
       start_date,
       end_date,
     });
+  }
+
+  async delete(req, res) {
+    const schema = Yup.object().shape({
+      id: Yup.number()
+        .positive()
+        .required(),
+    });
+
+    if (!(await schema.isValid(req.params))) {
+      return res.status(400).json({ error: 'Validation fails' });
+    }
+
+    const delivery = await Delivery.findByPk(req.params.id);
+
+    if (!delivery) {
+      return res.status(400).json('Delivery does not exists');
+    }
+
+    delivery.destroy({ where: delivery });
+
+    return res.json();
   }
 }
 

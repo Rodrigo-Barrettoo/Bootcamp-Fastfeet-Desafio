@@ -1,7 +1,7 @@
 import * as Yup from 'yup';
+import { Op } from 'sequelize';
 import { format, startOfHour, parseISO, isBefore } from 'date-fns';
 import pt from 'date-fns/locale/pt';
-import { Op } from 'sequelize';
 import Delivery from '../models/Delivery';
 import Deliveryman from '../models/Deliveryman';
 
@@ -65,7 +65,7 @@ class DeliveryStartController {
 
     const deliveryman = await Deliveryman.findByPk(delivery.deliveryman.id);
     if (!deliveryman) {
-      return res.status(400).json('Entregador não existe');
+      return res.status(400).json('Deliveryman does not exist');
     }
 
     const deliveryLimit = await Delivery.count({
